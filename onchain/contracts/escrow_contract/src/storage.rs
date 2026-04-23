@@ -1,18 +1,23 @@
 use crate::errors::EscrowError;
 use crate::types::{AutoPay, DataKey, LegacyVault, ScheduledPayment, VaultConfig, VaultState};
+use shared::storage as shared_storage;
 use soroban_sdk::{Address, BytesN, Env};
 
-/// The amount of ledger entries to bump persistent storage by.
+/// TTL constants for persistent storage entries.
+/// Bump amount: ~30 days (at ~5s per ledger close).
+#[allow(dead_code)]
 pub(crate) const PERSISTENT_BUMP_AMOUNT: u32 = 518_400;
-/// The threshold for persistent storage TTL to trigger an auto-bump.
+/// Lifetime threshold: ~7 days â€” entries are extended when remaining TTL drops below this.
+#[allow(dead_code)]
 pub(crate) const PERSISTENT_LIFETIME_THRESHOLD: u32 = 120_960;
 
 pub fn read_vault_config(env: &Env, commitment: &BytesN<32>) -> Option<VaultConfig> {
-    let storage = env.storage().persistent();
-    if let Some(config) = storage.get(&DataKey::VaultConfig(commitment.clone())) {
+    let key = DataKey::VaultConfig(commitment.clone());
+    if let Some(config) = shared_storage::get_persistent(env, &key) {
         return Some(config);
     }
-    let legacy: LegacyVault = storage.get(&DataKey::Vault(commitment.clone()))?;
+    let legacy: LegacyVault =
+        shared_storage::get_persistent(env, &DataKey::Vault(commitment.clone()))?;
     Some(VaultConfig {
         owner: legacy.owner,
         token: legacy.token,
@@ -22,20 +27,16 @@ pub fn read_vault_config(env: &Env, commitment: &BytesN<32>) -> Option<VaultConf
 
 pub fn write_vault_config(env: &Env, commitment: &BytesN<32>, config: &VaultConfig) {
     let key = DataKey::VaultConfig(commitment.clone());
-    env.storage().persistent().set(&key, config);
-    env.storage().persistent().extend_ttl(
-        &key,
-        PERSISTENT_LIFETIME_THRESHOLD,
-        PERSISTENT_BUMP_AMOUNT,
-    );
+    shared_storage::set_persistent(env, &key, config);
 }
 
 pub fn read_vault_state(env: &Env, commitment: &BytesN<32>) -> Option<VaultState> {
-    let storage = env.storage().persistent();
-    if let Some(state) = storage.get(&DataKey::VaultState(commitment.clone())) {
+    let key = DataKey::VaultState(commitment.clone());
+    if let Some(state) = shared_storage::get_persistent(env, &key) {
         return Some(state);
     }
-    let legacy: LegacyVault = storage.get(&DataKey::Vault(commitment.clone()))?;
+    let legacy: LegacyVault =
+        shared_storage::get_persistent(env, &DataKey::Vault(commitment.clone()))?;
     Some(VaultState {
         balance: legacy.balance,
         is_active: legacy.is_active,
@@ -44,91 +45,57 @@ pub fn read_vault_state(env: &Env, commitment: &BytesN<32>) -> Option<VaultState
 
 pub fn write_vault_state(env: &Env, commitment: &BytesN<32>, state: &VaultState) {
     let key = DataKey::VaultState(commitment.clone());
-    env.storage().persistent().set(&key, state);
-    env.storage().persistent().extend_ttl(
-        &key,
-        PERSISTENT_LIFETIME_THRESHOLD,
-        PERSISTENT_BUMP_AMOUNT,
-    );
+    shared_storage::set_persistent(env, &key, state);
 }
 
 pub fn increment_payment_id(env: &Env) -> Result<u32, EscrowError> {
-    let id: u32 = env
-        .storage()
-        .instance()
-        .get(&DataKey::PaymentCounter)
-        .unwrap_or(0);
+    let id: u32 = shared_storage::get_instance(env, &DataKey::PaymentCounter).unwrap_or(0);
 
     let next = id
         .checked_add(1)
         .ok_or(EscrowError::PaymentCounterOverflow)?;
 
-    env.storage()
-        .instance()
-        .set(&DataKey::PaymentCounter, &next);
+    shared_storage::set_instance(env, &DataKey::PaymentCounter, &next);
 
     Ok(id)
 }
 
 pub fn read_registration_contract(env: &Env) -> Option<Address> {
-    env.storage().instance().get(&DataKey::RegistrationContract)
+    shared_storage::get_instance(env, &DataKey::RegistrationContract)
 }
 
 pub fn write_registration_contract(env: &Env, address: &Address) {
-    env.storage()
-        .instance()
-        .set(&DataKey::RegistrationContract, address);
+    shared_storage::set_instance(env, &DataKey::RegistrationContract, address);
 }
 
 pub fn write_scheduled_payment(env: &Env, id: u32, payment: &ScheduledPayment) {
     let key = DataKey::ScheduledPayment(id);
-    env.storage().persistent().set(&key, payment);
-    env.storage().persistent().extend_ttl(
-        &key,
-        PERSISTENT_LIFETIME_THRESHOLD,
-        PERSISTENT_BUMP_AMOUNT,
-    );
+    shared_storage::set_persistent(env, &key, payment);
 }
 
 pub fn increment_auto_pay_id(env: &Env) -> Result<u32, EscrowError> {
-    let id: u32 = env
-        .storage()
-        .instance()
-        .get(&DataKey::AutoPayCounter)
-        .unwrap_or(0);
+    let id: u32 = shared_storage::get_instance(env, &DataKey::AutoPayCounter).unwrap_or(0);
 
     let next = id
         .checked_add(1)
         .ok_or(EscrowError::AutoPayCounterOverflow)?;
 
-    env.storage()
-        .instance()
-        .set(&DataKey::AutoPayCounter, &next);
+    shared_storage::set_instance(env, &DataKey::AutoPayCounter, &next);
 
     Ok(id)
 }
 
 pub fn read_auto_pay_count(env: &Env) -> u32 {
-    env.storage()
-        .instance()
-        .get(&DataKey::AutoPayCounter)
-        .unwrap_or(0)
+    shared_storage::get_instance(env, &DataKey::AutoPayCounter).unwrap_or(0)
 }
 
 pub fn write_auto_pay(env: &Env, commitment: &BytesN<32>, rule_id: u32, auto_pay: &AutoPay) {
     let key = DataKey::AutoPay(commitment.clone(), rule_id as u64);
-    env.storage().persistent().set(&key, auto_pay);
-    env.storage().persistent().extend_ttl(
-        &key,
-        PERSISTENT_LIFETIME_THRESHOLD,
-        PERSISTENT_BUMP_AMOUNT,
-    );
+    shared_storage::set_persistent(env, &key, auto_pay);
 }
 
 pub fn read_auto_pay(env: &Env, commitment: &BytesN<32>, rule_id: u32) -> Option<AutoPay> {
-    env.storage()
-        .persistent()
-        .get(&DataKey::AutoPay(commitment.clone(), rule_id as u64))
+    shared_storage::get_persistent(env, &DataKey::AutoPay(commitment.clone(), rule_id as u64))
 }
 
 pub fn delete_auto_pay(env: &Env, from: &BytesN<32>, rule_id: u32) {

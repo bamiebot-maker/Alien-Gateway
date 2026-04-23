@@ -16,6 +16,7 @@ use crate::storage::{
     write_vault_state,
 };
 use crate::types::{AutoPay, DataKey, ScheduledPayment, VaultConfig, VaultState};
+use shared::auth as shared_auth;
 use soroban_sdk::{
     contract, contractimpl, panic_with_error, token, vec, Address, BytesN, Env, IntoVal, Symbol,
 };
@@ -26,7 +27,7 @@ pub struct EscrowContract;
 #[contractimpl]
 impl EscrowContract {
     pub fn initialize(env: Env, admin: Address, registration_contract: Address) {
-        admin.require_auth();
+        shared_auth::require_address_auth(&admin);
         if read_registration_contract(&env).is_some() {
             panic_with_error!(&env, EscrowError::AlreadyInitialized);
         }
@@ -34,18 +35,19 @@ impl EscrowContract {
     }
 
     pub fn create_vault(env: Env, commitment: BytesN<32>, token: Address) {
-        let registration = read_registration_contract(&env)
-            .unwrap_or_else(|| panic_with_error!(&env, EscrowError::CommitmentNotRegistered));
+        let registration = shared_auth::unwrap_or_panic(
+            &env,
+            read_registration_contract(&env),
+            EscrowError::CommitmentNotRegistered,
+        );
 
         let owner: Option<Address> = env.invoke_contract(
             &registration,
             &Symbol::new(&env, "get_owner"),
             vec![&env, commitment.into_val(&env)],
         );
-        let owner =
-            owner.unwrap_or_else(|| panic_with_error!(&env, EscrowError::CommitmentNotRegistered));
-
-        owner.require_auth();
+        let owner = shared_auth::unwrap_or_panic(&env, owner, EscrowError::CommitmentNotRegistered);
+        shared_auth::require_address_auth(&owner);
 
         if read_vault_config(&env, &commitment).is_some() {
             panic_with_error!(&env, EscrowError::VaultAlreadyExists);
@@ -81,7 +83,7 @@ impl EscrowContract {
         let config = read_vault_config(&env, &commitment).ok_or(EscrowError::VaultNotFound)?;
         let mut state = read_vault_state(&env, &commitment).ok_or(EscrowError::VaultNotFound)?;
 
-        config.owner.require_auth();
+        require_vault_owner(&config);
 
         if !state.is_active {
             return Err(EscrowError::VaultInactive);
@@ -105,12 +107,9 @@ impl EscrowContract {
             panic_with_error!(&env, EscrowError::InvalidAmount);
         }
 
-        let config = read_vault_config(&env, &commitment)
-            .unwrap_or_else(|| panic_with_error!(&env, EscrowError::VaultNotFound));
-        let mut state = read_vault_state(&env, &commitment)
-            .unwrap_or_else(|| panic_with_error!(&env, EscrowError::VaultNotFound));
-
-        config.owner.require_auth();
+        let config = read_vault_config_or_panic(&env, &commitment);
+        let mut state = read_vault_state_or_panic(&env, &commitment);
+        require_vault_owner(&config);
 
         if !state.is_active {
             panic_with_error!(&env, EscrowError::VaultInactive);
@@ -150,7 +149,7 @@ impl EscrowContract {
         let config = read_vault_config(&env, &from).ok_or(EscrowError::VaultNotFound)?;
         let mut state = read_vault_state(&env, &from).ok_or(EscrowError::VaultNotFound)?;
 
-        config.owner.require_auth();
+        require_vault_owner(&config);
 
         if !state.is_active {
             return Err(EscrowError::VaultInactive);
@@ -221,7 +220,7 @@ impl EscrowContract {
 
     pub fn cancel_vault(env: Env, commitment: BytesN<32>) -> Result<(), EscrowError> {
         let config = read_vault_config(&env, &commitment).ok_or(EscrowError::VaultNotFound)?;
-        config.owner.require_auth();
+        require_vault_owner(&config);
 
         let mut state = read_vault_state(&env, &commitment).ok_or(EscrowError::VaultNotFound)?;
 
@@ -266,7 +265,7 @@ impl EscrowContract {
 
         let config = read_vault_config(&env, &from).ok_or(EscrowError::VaultNotFound)?;
 
-        config.owner.require_auth();
+        require_vault_owner(&config);
 
         let rule_id = increment_auto_pay_id(&env)?;
 
@@ -286,9 +285,8 @@ impl EscrowContract {
     }
 
     pub fn cancel_auto_pay(env: Env, from: BytesN<32>, rule_id: u32) {
-        let config = read_vault_config(&env, &from)
-            .unwrap_or_else(|| panic_with_error!(&env, EscrowError::VaultNotFound));
-        config.owner.require_auth();
+        let config = read_vault_config_or_panic(&env, &from);
+        require_vault_owner(&config);
 
         if read_auto_pay(&env, &from, rule_id).is_none() {
             panic_with_error!(&env, EscrowError::AutoPayNotFound);
@@ -300,8 +298,11 @@ impl EscrowContract {
     }
 
     pub fn trigger_auto_pay(env: Env, from: BytesN<32>, rule_id: u32) {
-        let mut auto_pay = read_auto_pay(&env, &from, rule_id)
-            .unwrap_or_else(|| panic_with_error!(&env, EscrowError::AutoPayNotFound));
+        let mut auto_pay = shared_auth::unwrap_or_panic(
+            &env,
+            read_auto_pay(&env, &from, rule_id),
+            EscrowError::AutoPayNotFound,
+        );
 
         let current_time = env.ledger().timestamp();
         let next_payment_time = auto_pay.last_paid + auto_pay.interval;
@@ -310,8 +311,7 @@ impl EscrowContract {
             panic_with_error!(&env, EscrowError::IntervalNotElapsed);
         }
 
-        let mut state = read_vault_state(&env, &from)
-            .unwrap_or_else(|| panic_with_error!(&env, EscrowError::VaultNotFound));
+        let mut state = read_vault_state_or_panic(&env, &from);
 
         if !state.is_active {
             panic_with_error!(&env, EscrowError::VaultInactive);
@@ -370,7 +370,29 @@ impl EscrowContract {
 
 /// Resolves a commitment to its owner address.
 fn resolve(env: &Env, commitment: &BytesN<32>) -> Address {
-    let config = read_vault_config(env, commitment)
-        .unwrap_or_else(|| panic_with_error!(env, EscrowError::VaultNotFound));
+    let config = read_vault_config_or_panic(env, commitment);
     config.owner
+}
+
+/// Loads a vault configuration or panics if the vault does not exist.
+fn read_vault_config_or_panic(env: &Env, commitment: &BytesN<32>) -> VaultConfig {
+    shared_auth::unwrap_or_panic(
+        env,
+        read_vault_config(env, commitment),
+        EscrowError::VaultNotFound,
+    )
+}
+
+/// Loads vault state or panics if the vault does not exist.
+fn read_vault_state_or_panic(env: &Env, commitment: &BytesN<32>) -> VaultState {
+    shared_auth::unwrap_or_panic(
+        env,
+        read_vault_state(env, commitment),
+        EscrowError::VaultNotFound,
+    )
+}
+
+/// Requires authorization from the vault owner.
+fn require_vault_owner(config: &VaultConfig) {
+    shared_auth::require_address_auth(&config.owner);
 }

@@ -1,3 +1,4 @@
+use shared::auth as shared_auth;
 use soroban_sdk::{panic_with_error, symbol_short, Address, BytesN, Env};
 
 use crate::errors::CoreError;
@@ -12,7 +13,7 @@ impl Admin {
         if storage::is_initialized(&env) {
             panic_with_error!(&env, CoreError::AlreadyInitialized);
         }
-        owner.require_auth();
+        shared_auth::require_address_auth(&owner);
         storage::set_owner(&env, &owner);
         // By default, owner is also admin and operator
         storage::set_admin(&env, &owner);
@@ -23,23 +24,24 @@ impl Admin {
 
     /// Returns the current contract owner address.
     pub fn get_contract_owner(env: Env) -> Address {
-        storage::get_owner(&env).unwrap_or_else(|| panic_with_error!(&env, CoreError::NotFound))
+        shared_auth::unwrap_or_panic(&env, storage::get_owner(&env), CoreError::NotFound)
     }
 
     /// Returns the current admin address.
     pub fn get_admin(env: Env) -> Address {
-        storage::get_admin(&env).unwrap_or_else(|| panic_with_error!(&env, CoreError::NotFound))
+        shared_auth::unwrap_or_panic(&env, storage::get_admin(&env), CoreError::NotFound)
     }
 
     /// Returns the current operator address.
     pub fn get_operator(env: Env) -> Address {
-        storage::get_operator(&env).unwrap_or_else(|| panic_with_error!(&env, CoreError::NotFound))
+        shared_auth::unwrap_or_panic(&env, storage::get_operator(&env), CoreError::NotFound)
     }
 
     /// Sets a new admin address. Only the owner can call this.
     pub fn set_admin(env: Env, new_admin: Address) {
-        let owner = Self::get_contract_owner(env.clone());
-        owner.require_auth();
+        let owner =
+            shared_auth::unwrap_or_panic(&env, storage::get_owner(&env), CoreError::NotFound);
+        shared_auth::require_address_auth(&owner);
         storage::set_admin(&env, &new_admin);
         #[allow(deprecated)]
         env.events()
@@ -48,8 +50,9 @@ impl Admin {
 
     /// Sets a new operator address. Only the admin can call this.
     pub fn set_operator(env: Env, new_operator: Address) {
-        let admin = Self::get_admin(env.clone());
-        admin.require_auth();
+        let admin =
+            shared_auth::unwrap_or_panic(&env, storage::get_admin(&env), CoreError::NotFound);
+        shared_auth::require_address_auth(&admin);
         storage::set_operator(&env, &new_operator);
         #[allow(deprecated)]
         env.events()
@@ -57,15 +60,18 @@ impl Admin {
     }
 
     pub fn get_smt_root(env: Env) -> BytesN<32> {
-        smt_root::SmtRoot::get_root(env.clone())
-            .unwrap_or_else(|| panic_with_error!(&env, CoreError::RootNotSet))
+        shared_auth::unwrap_or_panic(
+            &env,
+            smt_root::SmtRoot::get_root(env.clone()),
+            CoreError::RootNotSet,
+        )
     }
 
     /// Updates the Sparse Merkle Tree root. Only the operator can call this.
     pub fn update_smt_root(env: Env, new_root: BytesN<32>) {
-        let operator = storage::get_operator(&env)
-            .unwrap_or_else(|| panic_with_error!(&env, CoreError::NotFound));
-        operator.require_auth();
+        let operator =
+            shared_auth::unwrap_or_panic(&env, storage::get_operator(&env), CoreError::NotFound);
+        shared_auth::require_address_auth(&operator);
 
         if let Some(current) = env
             .storage()

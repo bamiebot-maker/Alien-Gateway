@@ -12,6 +12,7 @@ mod types;
 #[cfg(test)]
 mod test;
 
+use shared::auth as shared_auth;
 use soroban_sdk::{contract, contractimpl, panic_with_error, symbol_short, Address, BytesN, Env};
 
 use crate::errors::FactoryError;
@@ -33,7 +34,7 @@ impl FactoryContract {
         if get_owner(&env).is_some() {
             panic_with_error!(&env, FactoryError::Unauthorized);
         }
-        owner.require_auth();
+        shared_auth::require_address_auth(&owner);
         set_owner(&env, &owner);
         set_admin(&env, &owner);
         set_operator(&env, &owner);
@@ -43,7 +44,7 @@ impl FactoryContract {
     pub fn configure(env: Env, auction_contract: Address, core_contract: Address) {
         let operator = get_operator(&env)
             .unwrap_or_else(|| panic_with_error!(&env, FactoryError::Unauthorized));
-        operator.require_auth();
+        shared_auth::require_address_auth(&operator);
         set_auction_contract(&env, &auction_contract);
         set_core_contract(&env, &core_contract);
     }
@@ -52,7 +53,7 @@ impl FactoryContract {
     pub fn set_admin(env: Env, new_admin: Address) {
         let owner =
             get_owner(&env).unwrap_or_else(|| panic_with_error!(&env, FactoryError::Unauthorized));
-        owner.require_auth();
+        shared_auth::require_address_auth(&owner);
         set_admin(&env, &new_admin);
         #[allow(deprecated)]
         env.events()
@@ -63,7 +64,7 @@ impl FactoryContract {
     pub fn set_operator(env: Env, new_operator: Address) {
         let admin =
             get_admin(&env).unwrap_or_else(|| panic_with_error!(&env, FactoryError::Unauthorized));
-        admin.require_auth();
+        shared_auth::require_address_auth(&admin);
         set_operator(&env, &new_operator);
         #[allow(deprecated)]
         env.events()
@@ -90,8 +91,7 @@ impl FactoryContract {
         username_hash: BytesN<32>,
         owner: Address,
     ) -> Result<(), FactoryError> {
-        let auction_contract = read_auction_contract(&env).ok_or(FactoryError::Unauthorized)?;
-        auction_contract.require_auth();
+        require_auction_contract_auth(&env)?;
 
         if has_username(&env, &username_hash) {
             return Err(FactoryError::AlreadyDeployed);
@@ -122,8 +122,7 @@ impl FactoryContract {
         username_hash: BytesN<32>,
         new_owner: Address,
     ) -> Result<(), FactoryError> {
-        let auction_contract = read_auction_contract(&env).ok_or(FactoryError::Unauthorized)?;
-        auction_contract.require_auth();
+        require_auction_contract_auth(&env)?;
 
         let mut record = get_username(&env, &username_hash).ok_or(FactoryError::Unauthorized)?;
 
@@ -150,4 +149,11 @@ impl FactoryContract {
     pub fn core_contract(env: Env) -> Option<Address> {
         read_core_contract(&env)
     }
+}
+
+/// Loads the configured auction contract and requires its authorization.
+fn require_auction_contract_auth(env: &Env) -> Result<Address, FactoryError> {
+    let auction_contract = read_auction_contract(env).ok_or(FactoryError::Unauthorized)?;
+    shared_auth::require_address_auth(&auction_contract);
+    Ok(auction_contract)
 }

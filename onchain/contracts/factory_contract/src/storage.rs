@@ -1,102 +1,76 @@
+use shared::storage as shared_storage;
 use soroban_sdk::{Address, BytesN, Env};
 
 use crate::types::{DataKey, DeployConfig, UsernameRecord};
 
-/// The amount of ledger entries to bump persistent storage by.
+/// TTL constants for persistent storage entries.
+/// Bump amount: ~30 days (at ~5s per ledger close).
+#[allow(dead_code)]
 pub(crate) const PERSISTENT_BUMP_AMOUNT: u32 = 518_400;
-/// The threshold for persistent storage TTL to trigger an auto-bump.
+/// Lifetime threshold: ~7 days â€” entries are extended when remaining TTL drops below this.
+#[allow(dead_code)]
 pub(crate) const PERSISTENT_LIFETIME_THRESHOLD: u32 = 120_960;
 
 /// Sets the auction contract address.
 pub fn set_auction_contract(env: &Env, auction_contract: &Address) {
-    env.storage()
-        .instance()
-        .set(&DataKey::AuctionContract, auction_contract);
+    shared_storage::set_instance(env, &DataKey::AuctionContract, auction_contract);
 }
 
 /// Returns the auction contract address.
 pub fn get_auction_contract(env: &Env) -> Option<Address> {
-    env.storage()
-        .instance()
-        .get::<DataKey, Address>(&DataKey::AuctionContract)
+    shared_storage::get_instance(env, &DataKey::AuctionContract)
 }
 
 /// Sets the contract owner.
 pub fn set_owner(env: &Env, owner: &Address) {
-    env.storage().instance().set(&DataKey::Owner, owner);
+    shared_storage::set_instance(env, &DataKey::Owner, owner);
 }
 
 /// Returns the contract owner.
 pub fn get_owner(env: &Env) -> Option<Address> {
-    env.storage()
-        .instance()
-        .get::<DataKey, Address>(&DataKey::Owner)
+    shared_storage::get_instance(env, &DataKey::Owner)
 }
 
 /// Sets the contract admin.
 pub fn set_admin(env: &Env, admin: &Address) {
-    env.storage().instance().set(&DataKey::Admin, admin);
+    shared_storage::set_instance(env, &DataKey::Admin, admin);
 }
 
 /// Returns the contract admin.
 pub fn get_admin(env: &Env) -> Option<Address> {
-    env.storage()
-        .instance()
-        .get::<DataKey, Address>(&DataKey::Admin)
+    shared_storage::get_instance(env, &DataKey::Admin)
 }
 
 /// Sets the contract operator.
 pub fn set_operator(env: &Env, operator: &Address) {
-    env.storage().instance().set(&DataKey::Operator, operator);
+    shared_storage::set_instance(env, &DataKey::Operator, operator);
 }
 
 /// Returns the contract operator.
 pub fn get_operator(env: &Env) -> Option<Address> {
-    env.storage()
-        .instance()
-        .get::<DataKey, Address>(&DataKey::Operator)
+    shared_storage::get_instance(env, &DataKey::Operator)
 }
 
 /// Sets the core contract address.
 pub fn set_core_contract(env: &Env, core_contract: &Address) {
-    env.storage()
-        .instance()
-        .set(&DataKey::CoreContract, core_contract);
+    shared_storage::set_instance(env, &DataKey::CoreContract, core_contract);
 }
 
 /// Returns the core contract address.
 pub fn get_core_contract(env: &Env) -> Option<Address> {
-    env.storage()
-        .instance()
-        .get::<DataKey, Address>(&DataKey::CoreContract)
+    shared_storage::get_instance(env, &DataKey::CoreContract)
 }
 
 /// Stores a username record.
 pub fn set_username(env: &Env, hash: &BytesN<32>, record: &UsernameRecord) {
     let key = DataKey::Username(hash.clone());
-    env.storage().persistent().set(&key, record);
-    env.storage().persistent().extend_ttl(
-        &key,
-        PERSISTENT_LIFETIME_THRESHOLD,
-        PERSISTENT_BUMP_AMOUNT,
-    );
+    shared_storage::set_persistent(env, &key, record);
 }
 
 /// Returns a username record.
 pub fn get_username(env: &Env, hash: &BytesN<32>) -> Option<UsernameRecord> {
     let key = DataKey::Username(hash.clone());
-    let record = env
-        .storage()
-        .persistent()
-        .get::<DataKey, UsernameRecord>(&key);
-    if record.is_some() {
-        env.storage().persistent().extend_ttl(
-            &key,
-            PERSISTENT_LIFETIME_THRESHOLD,
-            PERSISTENT_BUMP_AMOUNT,
-        );
-    }
-    record
+    shared_storage::get_persistent_with_ttl(env, &key)
 }
 
 /// Checks if a username hash is registered.
@@ -109,19 +83,12 @@ pub fn has_username(env: &Env, hash: &BytesN<32>) -> bool {
 #[allow(dead_code)]
 /// Returns the deployment configuration.
 pub fn get_config(env: &Env) -> Option<DeployConfig> {
-    env.storage()
-        .persistent()
-        .get::<DataKey, DeployConfig>(&DataKey::Config)
+    shared_storage::get_persistent(env, &DataKey::Config)
 }
 
 #[allow(dead_code)]
 /// Sets the deployment configuration.
 pub fn set_config(env: &Env, config: &DeployConfig) {
     let key = DataKey::Config;
-    env.storage().persistent().set(&key, config);
-    env.storage().persistent().extend_ttl(
-        &key,
-        PERSISTENT_LIFETIME_THRESHOLD,
-        PERSISTENT_BUMP_AMOUNT,
-    );
+    shared_storage::set_persistent(env, &key, config);
 }

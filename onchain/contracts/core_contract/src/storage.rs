@@ -1,3 +1,4 @@
+use shared::storage as shared_storage;
 use soroban_sdk::{contracttype, Address, BytesN, Env};
 
 use crate::types::PrivacyMode;
@@ -28,12 +29,7 @@ pub enum DataKey {
 
 pub fn set_privacy_mode(env: &Env, username_hash: &BytesN<32>, mode: &PrivacyMode) {
     let key = DataKey::PrivacyMode(username_hash.clone());
-    env.storage().persistent().set(&key, mode);
-    env.storage().persistent().extend_ttl(
-        &key,
-        PERSISTENT_LIFETIME_THRESHOLD,
-        PERSISTENT_BUMP_AMOUNT,
-    );
+    shared_storage::set_persistent(env, &key, mode);
 }
 
 pub fn get_privacy_mode(env: &Env, username_hash: &BytesN<32>) -> PrivacyMode {
@@ -45,32 +41,32 @@ pub fn get_privacy_mode(env: &Env, username_hash: &BytesN<32>) -> PrivacyMode {
 
 /// Sets the contract owner.
 pub fn set_owner(env: &Env, owner: &Address) {
-    env.storage().instance().set(&DataKey::Owner, owner);
+    shared_storage::set_instance(env, &DataKey::Owner, owner);
 }
 
 /// Returns the contract owner.
 pub fn get_owner(env: &Env) -> Option<Address> {
-    env.storage().instance().get(&DataKey::Owner)
+    shared_storage::get_instance(env, &DataKey::Owner)
 }
 
 /// Sets the contract admin.
 pub fn set_admin(env: &Env, admin: &Address) {
-    env.storage().instance().set(&DataKey::Admin, admin);
+    shared_storage::set_instance(env, &DataKey::Admin, admin);
 }
 
 /// Returns the contract admin.
 pub fn get_admin(env: &Env) -> Option<Address> {
-    env.storage().instance().get(&DataKey::Admin)
+    shared_storage::get_instance(env, &DataKey::Admin)
 }
 
 /// Sets the contract operator.
 pub fn set_operator(env: &Env, operator: &Address) {
-    env.storage().instance().set(&DataKey::Operator, operator);
+    shared_storage::set_instance(env, &DataKey::Operator, operator);
 }
 
 /// Returns the contract operator.
 pub fn get_operator(env: &Env) -> Option<Address> {
-    env.storage().instance().get(&DataKey::Operator)
+    shared_storage::get_instance(env, &DataKey::Operator)
 }
 
 pub fn is_initialized(env: &Env) -> bool {
@@ -79,18 +75,11 @@ pub fn is_initialized(env: &Env) -> bool {
 
 pub fn set_shielded_address(env: &Env, username_hash: &BytesN<32>, commitment: &BytesN<32>) {
     let key = DataKey::ShieldedAddress(username_hash.clone());
-    env.storage().persistent().set(&key, commitment);
-    env.storage().persistent().extend_ttl(
-        &key,
-        PERSISTENT_LIFETIME_THRESHOLD,
-        PERSISTENT_BUMP_AMOUNT,
-    );
+    shared_storage::set_persistent(env, &key, commitment);
 }
 
 pub fn get_shielded_address(env: &Env, username_hash: &BytesN<32>) -> Option<BytesN<32>> {
-    env.storage()
-        .persistent()
-        .get(&DataKey::ShieldedAddress(username_hash.clone()))
+    shared_storage::get_persistent(env, &DataKey::ShieldedAddress(username_hash.clone()))
 }
 
 pub fn has_shielded_address(env: &Env, username_hash: &BytesN<32>) -> bool {
@@ -101,18 +90,11 @@ pub fn has_shielded_address(env: &Env, username_hash: &BytesN<32>) -> bool {
 
 pub fn set_created_at(env: &Env, username_hash: &BytesN<32>, timestamp: u64) {
     let key = DataKey::CreatedAt(username_hash.clone());
-    env.storage().persistent().set(&key, &timestamp);
-    env.storage().persistent().extend_ttl(
-        &key,
-        PERSISTENT_LIFETIME_THRESHOLD,
-        PERSISTENT_BUMP_AMOUNT,
-    );
+    shared_storage::set_persistent(env, &key, &timestamp);
 }
 
 pub fn get_created_at(env: &Env, username_hash: &BytesN<32>) -> Option<u64> {
-    env.storage()
-        .persistent()
-        .get(&DataKey::CreatedAt(username_hash.clone()))
+    shared_storage::get_persistent(env, &DataKey::CreatedAt(username_hash.clone()))
 }
 
 pub fn set_delegate_permissions(
@@ -122,12 +104,7 @@ pub fn set_delegate_permissions(
     permissions: &crate::types::PermissionSet,
 ) {
     let key = DataKey::Delegate(username_hash.clone(), delegate.clone());
-    env.storage().persistent().set(&key, permissions);
-    env.storage().persistent().extend_ttl(
-        &key,
-        PERSISTENT_LIFETIME_THRESHOLD,
-        PERSISTENT_BUMP_AMOUNT,
-    );
+    shared_storage::set_persistent(env, &key, permissions);
 }
 
 pub fn get_delegate_permissions(
@@ -135,9 +112,10 @@ pub fn get_delegate_permissions(
     username_hash: &BytesN<32>,
     delegate: &Address,
 ) -> Option<crate::types::PermissionSet> {
-    env.storage()
-        .persistent()
-        .get(&DataKey::Delegate(username_hash.clone(), delegate.clone()))
+    shared_storage::get_persistent(
+        env,
+        &DataKey::Delegate(username_hash.clone(), delegate.clone()),
+    )
 }
 
 pub fn remove_delegate_permissions(env: &Env, username_hash: &BytesN<32>, delegate: &Address) {
